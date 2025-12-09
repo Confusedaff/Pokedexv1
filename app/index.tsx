@@ -7,6 +7,7 @@ interface Pokemon{
   image:string;
   imageBack:string;
   types:PokemonType[];
+  details:string;
 }
 
 interface PokemonType{
@@ -44,29 +45,55 @@ export default function Index() {
   },[]);
 
   async function fetchPokemon() {
-    try{
-      const response = await fetch(
-        "https://pokeapi.co/api/v2/pokemon/?limit=100"
-      );
-      const data = await response.json();
-
-      const detailedPokemons = await Promise.all(
-      data.results.map(async (pokemon:any) => {
-        const res = await fetch(pokemon.url);
-        const details = await res.json();
-        return {
-          name: pokemon.name,
-          image: details.sprites.front_default,
-          imageBack: details.sprites.back_default,
-          types:details.types
-        };
-      })
+  try {
+    const response = await fetch(
+      "https://pokeapi.co/api/v2/pokemon?limit=1300"
     );
-    setPokemons(detailedPokemons);
-    }catch(e){
-      console.log(e);
+    const data = await response.json();
+
+    const BATCH_SIZE = 20; // ✅ safe number
+    const detailedPokemons: any[] = [];
+
+    for (let i = 0; i < data.results.length; i += BATCH_SIZE) {
+      const batch = data.results.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.all(
+        batch.map(async (pokemon: any) => {
+          const res = await fetch(pokemon.url);
+          const details = await res.json();
+
+          const resSpecies = await fetch(
+            `https://pokeapi.co/api/v2/pokemon-species/${pokemon.name}`
+          );
+          const species = await resSpecies.json();
+
+          const description =
+            species.flavor_text_entries.find(
+              (entry: any) => entry.language.name === "en"
+            )?.flavor_text.replace(/\n|\f/g, " ") ??
+            "No description available";
+
+          return {
+            name: pokemon.name,
+            image: details.sprites.front_default,
+            imageBack: details.sprites.back_default,
+            types: details.types,
+            details: description,
+          };
+        })
+      );
+
+      detailedPokemons.push(...batchResults);
+
+      // ✅ update UI progressively (optional but recommended)
+      setPokemons((prev) => [...prev, ...batchResults]);
     }
+
+  } catch (e) {
+    console.log(e);
   }
+}
+
 
   return (
    <ScrollView
@@ -77,7 +104,12 @@ export default function Index() {
    >
     {pokemons.map((pokemon)=>(
       <Link key = {pokemon.name}
-      href = {"/details"}
+      href = {{pathname:"/details",params:{
+        name:pokemon.name,
+        image:pokemon.image,
+        type:pokemon.types[0].type.name,
+        details:pokemon.details,
+      }}}
       style = {{
         // @ts-ignore
         backgroundColor:colorsByType[pokemon.types[0].type.name] + 60,
